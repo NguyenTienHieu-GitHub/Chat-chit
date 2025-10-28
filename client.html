@@ -1,0 +1,508 @@
+<!doctype html>
+<html lang="vi">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+    <title>Group Chat (Mono)</title>
+    <style>
+        :root {
+            --bg: #0b0b0b;
+            --panel: #121212;
+            --text: #e5e7eb;
+            --muted: #9ca3af;
+            --border: #1f1f1f;
+            --me: #000;
+            --you: #1a1a1a;
+            --shadow: 0 1px 2px rgba(0, 0, 0, .5);
+            --kb: 0px;
+            --composer-h: 60px
+        }
+
+        * {
+            box-sizing: border-box
+        }
+
+        html,
+        body {
+            height: 100%
+        }
+
+        body {
+            margin: 0;
+            background: var(--bg);
+            color: var(--text);
+            font: 16px/1.4 system-ui, -apple-system, Segoe UI, Roboto
+        }
+
+        .app {
+            display: flex;
+            flex-direction: column;
+            height: 100dvh;
+            padding: 12px;
+            gap: 12px;
+            padding-top: env(safe-area-inset-top);
+            padding-bottom: env(safe-area-inset-bottom)
+        }
+
+        .card {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 12px;
+            position: relative;
+            z-index: 2
+        }
+
+        .row {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            align-items: center
+        }
+
+        input,
+        button {
+            padding: 10px 12px;
+            border-radius: 10px;
+            border: 1px solid var(--border);
+            background: #0f0f0f;
+            color: var(--text)
+        }
+
+        input {
+            flex: 1
+        }
+
+        button {
+            background: #000;
+            font-weight: 700
+        }
+
+        .muted {
+            color: var(--muted);
+            font-size: 12px
+        }
+
+        .top {
+            display: flex;
+            justify-content: space-between;
+            gap: 8px
+        }
+
+        .badge {
+            font-size: 12px;
+            color: var(--muted)
+        }
+
+        .thread {
+            flex: 1;
+            overflow: auto;
+            padding: 12px;
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            position: relative;
+            z-index: 1;
+            padding-bottom: calc(var(--composer-h) + 16px)
+        }
+
+        .msg {
+            display: flex;
+            gap: 8px;
+            align-items: flex-start
+        }
+
+        .msg.me {
+            justify-content: flex-end
+        }
+
+        .msg.you {
+            justify-content: flex-start
+        }
+
+        .bubble {
+            max-width: min(80%, 560px);
+            padding: 10px 12px;
+            border-radius: 16px;
+            box-shadow: var(--shadow)
+        }
+
+        .me .bubble {
+            background: var(--me)
+        }
+
+        .you .bubble {
+            background: var(--you)
+        }
+
+        .name {
+            font-weight: 700;
+            margin-bottom: 4px;
+            color: #e5e7eb
+        }
+
+        .meta {
+            margin-top: 6px;
+            color: var(--muted);
+            font-size: 12px
+        }
+
+        .inputbar {
+            position: fixed;
+            left: 12px;
+            right: 12px;
+            bottom: calc(env(safe-area-inset-bottom) + var(--kb) + 12px);
+            display: flex;
+            gap: 8px;
+            z-index: 3
+        }
+    </style>
+</head>
+
+<body>
+    <div class="app">
+        <!-- Header -->
+        <div class="card">
+            <div class="top">
+                <div>My ID: <span id="myId" class="badge">—</span></div>
+                <div>Room: <span id="curRoom" class="badge">—</span></div>
+            </div>
+        </div>
+
+        <!-- Step 1: đăng ký ID -->
+        <div class="card" id="stepMe">
+            <div class="row"><input id="inpMe" placeholder="Nhập ID của bạn (vd: u123)" /></div>
+            <div class="row">
+                <button id="btnMe" type="button">Đăng ký ID</button>
+                <span id="state1" class="muted"></span>
+            </div>
+        </div>
+
+        <!-- Group panel (DUY NHẤT, có mật khẩu) -->
+        <div class="card" id="groupPanel" style="display:none">
+            <div class="row"><input id="roomId" placeholder="Room ID (vd: group-001)" /></div>
+            <div class="row"><input id="roomPass" placeholder="Mật khẩu phòng (để trống nếu không)"
+                    autocomplete="new-password" /></div>
+            <div class="row">
+                <button id="btnCreate" type="button">Tạo phòng</button>
+                <button id="btnJoin" type="button">Join</button>
+            </div>
+            <span id="gState" class="muted"></span>
+            <div class="row">
+                <input id="invitePeer" placeholder="Mời ID (vd: u456)" />
+                <button id="btnInvite" type="button">Mời</button>
+                <button id="btnLeave" type="button" style="margin-left:auto">Leave</button>
+            </div>
+
+        </div>
+
+        <!-- Thread -->
+        <div class="thread" id="thread" aria-live="polite"></div>
+
+        <!-- Composer -->
+        <form class="inputbar card" id="composer" style="display:none;height:var(--composer-h);align-items:center">
+            <input id="inpText" placeholder="Nhắn tin..." autocomplete="off" />
+            <button id="btnSend" type="submit">Gửi</button>
+        </form>
+    </div>
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <script>
+        document.addEventListener("DOMContentLoaded", () => {
+            const API = "http://localhost:3000"; // đổi sang IP LAN khi test mobile
+
+            let socket = null;
+            let my = "", currentRoom = "";
+
+            const $ = (id) => document.getElementById(id);
+            const thread = $("thread");
+            const msgInput = $("inpText");
+
+            const fmtTime = (ts) => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            const esc = (s) => String(s).replace(/[&<>"']/g, m => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
+            function render({ side, name, text, at }) {
+                const row = document.createElement("div");
+                row.className = `msg ${side}`;
+                row.innerHTML = `<div class="bubble"><div class="name">${esc(name)}</div><div>${esc(text)}</div><div class="meta">${fmtTime(at)}</div></div>`;
+                thread.appendChild(row);
+                thread.scrollTop = thread.scrollHeight;
+            }
+
+            // Mobile keyboard push-up
+            const root = document.documentElement;
+            function updateKbInset() {
+                const vv = window.visualViewport;
+                if (!vv) { root.style.setProperty('--kb', '0px'); return; }
+                const kb = Math.max(0, (window.innerHeight - vv.height - vv.offsetTop));
+                root.style.setProperty('--kb', kb + 'px');
+            }
+            updateKbInset();
+            if (window.visualViewport) {
+                visualViewport.addEventListener('resize', updateKbInset);
+                visualViewport.addEventListener('scroll', updateKbInset);
+            }
+
+            // Step 1: đăng ký ID
+            $("btnMe").addEventListener("click", () => {
+                const id = $("inpMe").value.trim();
+                if (!id) { $("state1").textContent = "Nhập ID của bạn."; return; }
+                my = id;
+
+                if (socket && socket.connected) socket.disconnect();
+                socket = io(API, {
+                    auth: { id: my },
+                    reconnection: true,
+                    reconnectionAttempts: 10,     // thử tối đa 10 lần
+                    reconnectionDelay: 1000,      // delay ban đầu 1s
+                    reconnectionDelayMax: 8000,   // delay tối đa 8s
+                    timeout: 10000,               // 10s cho handshake
+                });
+
+                // Kết nối thành công lần đầu
+                socket.on("connect", () => {
+                    $("state1").textContent = "Đã kết nối Socket.IO";
+                });
+
+                // Nhận ID đã đăng ký
+                socket.on("user:registered", (info) => {
+                    $("myId").textContent = info.id;
+                    $("stepMe").style.display = "none";
+                    $("groupPanel").style.display = "";
+                });
+
+                // Lỗi ngay lúc bắt tay
+                socket.on("connect_error", (e) => {
+                    $("state1").textContent = e?.message || "Kết nối lỗi";
+                });
+
+                // Mất kết nối
+                socket.on("disconnect", (reason) => {
+                    $("gState").textContent = `Mất kết nối: ${reason}`;
+                    $("composer").style.display = "none";
+                });
+
+                // Thử nối lại
+                socket.on("reconnect_attempt", (n) => {
+                    $("gState").textContent = `Đang thử kết nối lại… (lần ${n})`;
+                });
+
+                // Nối lại thành công
+                socket.on("reconnect", (n) => {
+                    $("gState").textContent = `Đã kết nối lại (sau ${n} lần thử).`;
+                    // (tuỳ chọn) auto-join phòng trước đó nếu bạn có lưu lastRoom/lastPass
+                });
+
+                // Hết số lần thử mà vẫn không nối được
+                socket.on("reconnect_failed", () => {
+                    $("gState").textContent = "Không thể kết nối lại. Kiểm tra mạng và đăng ký lại ID.";
+                });
+
+                // Báo lỗi ID trùng
+                socket.on("user:error", (e) => {
+                    $("state1").textContent = e?.error || "ID bị trùng";
+                });
+
+                // Tạo/hiển thị banner mời vào phòng, có nút Accept/Reject
+                socket.on("room:incoming", ({ inviteId, roomId, fromId, at }) => {
+                    // nếu đã có banner cũ thì gỡ
+                    const old = document.getElementById("inviteBar");
+                    if (old) old.remove();
+
+                    const bar = document.createElement("div");
+                    bar.id = "inviteBar";
+                    bar.style.position = "fixed";
+                    bar.style.left = "12px";
+                    bar.style.right = "12px";
+                    bar.style.bottom = "calc(env(safe-area-inset-bottom) + var(--kb) + var(--composer-h) + 16px)";
+                    bar.style.zIndex = "5";
+                    bar.style.background = "#121212";
+                    bar.style.border = "1px solid #1f1f1f";
+                    bar.style.borderRadius = "12px";
+                    bar.style.padding = "12px";
+                    bar.style.display = "flex";
+                    bar.style.gap = "8px";
+                    bar.style.alignItems = "center";
+                    bar.style.boxShadow = "0 8px 24px rgba(0,0,0,.6)";
+
+                    const text = document.createElement("div");
+                    text.style.flex = "1";
+                    text.innerHTML = `<b>${fromId}</b> mời bạn vào phòng <b>${roomId}</b>`;
+
+                    const btnAccept = document.createElement("button");
+                    btnAccept.textContent = "Chấp nhận";
+                    btnAccept.style.fontWeight = "700";
+
+                    const btnReject = document.createElement("button");
+                    btnReject.textContent = "Từ chối";
+
+                    // Hành vi nút
+                    btnAccept.onclick = () => {
+                        btnAccept.disabled = true; btnReject.disabled = true;
+                        socket.emit("room:accept", { inviteId }, (ack) => {
+                            if (!ack?.ok) {
+                                // hiển thị lỗi nhẹ
+                                document.getElementById("gState").textContent = ack?.error || "Không tham gia được";
+                                btnAccept.disabled = false; btnReject.disabled = false;
+                                return;
+                            }
+                            // join ok -> cập nhật UI như cũ
+                            currentRoom = ack.roomId;          // ✅ dùng đúng biến đã khai báo bằng let
+                            $("curRoom").textContent = currentRoom;
+                            $("gState").textContent = `Đã vào: ${currentRoom} | Members: ${ack.members.join(", ")}${ack.locked ? " | 🔒" : ""}`;
+                            $("composer").style.display = "";
+                            thread.innerHTML = "";
+                            render({ side: "you", name: "BOT 🤖", text: "Bạn đã tham gia phòng", at: Date.now() });
+
+                            bar.remove();
+                        });
+                    };
+
+                    btnReject.onclick = () => {
+                        btnAccept.disabled = true; btnReject.disabled = true;
+                        socket.emit("room:reject", { inviteId }, () => {
+                            document.getElementById("gState").textContent = "Bạn đã từ chối lời mời.";
+                            bar.remove();
+                        });
+                    };
+
+                    bar.appendChild(text);
+                    bar.appendChild(btnAccept);
+                    bar.appendChild(btnReject);
+                    document.body.appendChild(bar);
+                });
+
+                $("btnLeave").addEventListener("click", () => {
+                    if (!currentRoom) { $("gState").textContent = "Bạn chưa ở phòng nào"; return; }
+                    const rid = currentRoom;
+                    socket.emit("room:leave", { roomId: rid }, (ack) => {
+                        if (!ack?.ok) { $("gState").textContent = ack?.error || "Leave lỗi"; return; }
+                        render({ side: "you", name: "BOT 🤖", text: `Bạn đã rời phòng`, at: Date.now() });
+                        $("gState").textContent = `Đã rời: ${rid}`;
+                        $("curRoom").textContent = "—";
+                        $("composer").style.display = "none";
+                        currentRoom = "";
+                    });
+                });
+
+                // Room events
+                socket.on("room:system", ({ roomId, text, at }) => {
+                    if (roomId !== currentRoom) return; render({ side: "you", name: "BOT 🤖", text, at });
+                });
+                socket.on("room:rejected", ({ by }) => {
+                    $("gState").textContent = `Lời mời bị từ chối bởi ${by}`;
+                });
+                socket.on("room:message", (msg) => {
+                    if (msg.roomId !== currentRoom) return;
+                    const side = (msg.from === my) ? "me" : "you";
+                    render({ side, name: msg.from, text: msg.text, at: msg.at });
+                });
+
+            });
+            document.addEventListener("visibilitychange", () => {
+                if (document.visibilityState === "visible" && socket?.disconnected) {
+                    $("gState").textContent = "Tab vừa quay lại — đang thử kết nối…";
+                    socket.connect();
+                }
+            });
+
+            // Create room (có thể có mật khẩu) — KHÔNG auto-join nếu đã tồn tại
+            $("btnCreate").addEventListener("click", () => {
+                const rid = $("roomId").value.trim();
+                const pwd = $("roomPass").value; // có thể rỗng
+                if (!rid) { $("gState").textContent = "Nhập Room ID"; return; }
+
+                socket.emit("room:create", { roomId: rid, password: pwd }, (ack) => {
+                    if (!ack?.ok) {
+                        if (ack?.error === "ROOM_EXISTS") {
+                            // ✅ Chỉ thông báo, KHÔNG tự join
+                            $("gState").textContent = "❗ Phòng đã tồn tại. Hãy dùng nút Join để vào phòng.";
+                        } else {
+                            $("gState").textContent = ack?.error || "Tạo phòng lỗi";
+                        }
+                        return;
+                    }
+
+                    // Tạo mới OK
+                    currentRoom = ack.roomId;
+                    $("curRoom").textContent = currentRoom;
+                    $("gState").textContent =
+                        `Đã tạo & vào: ${currentRoom} | Members: ${ack.members.join(", ")}${ack.locked ? " | 🔒" : ""}`;
+                    $("composer").style.display = "";
+                    thread.innerHTML = "";
+                    render({ side: "you", name: "BOT 🤖", text: `Bạn đã tạo phòng${ack.locked ? " (🔒)" : ""}`, at: Date.now() });
+                });
+            });
+            // Khi rời ô Room ID, báo "phòng đã tồn tại" hay "chưa tồn tại"
+            $("roomId").addEventListener("blur", () => {
+                const rid = $("roomId").value.trim();
+                if (!rid || !socket?.connected) return;
+                socket.emit("room:exists", { roomId: rid }, (ack) => {
+                    if (!ack?.ok) return;
+                    $("gState").textContent = ack.exists
+                        ? `Phòng "${rid}" đã tồn tại${ack.locked ? " (🔒)" : ""}. Nhấn Join để vào.`
+                        : `Phòng "${rid}" chưa tồn tại. Bạn có thể Tạo mới${$("roomPass").value ? " (sẽ 🔒)" : ""}.`;
+                });
+            });
+
+            // Join phòng (nếu có mật khẩu thì nhập ở ô roomPass)
+            $("btnJoin").addEventListener("click", () => {
+                const rid = $("roomId").value.trim();
+                const pwd = $("roomPass").value;
+                if (!rid) { $("gState").textContent = "Nhập Room ID"; return; }
+
+                socket.emit("room:join", { roomId: rid, password: pwd }, (ack) => {
+                    if (!ack?.ok) {
+                        const m =
+                            ack?.error === "ALREADY_IN_ROOM" ? "Bạn đang ở phòng này rồi." :
+                                ack?.error === "WRONG_PASSWORD" ? "Sai mật khẩu." :
+                                    ack?.error === "ROOM_NOT_FOUND" ? "Phòng không tồn tại." :
+                                        ack?.error || "Join lỗi";
+                        $("gState").textContent = m;
+                        return;
+                    }
+
+                    currentRoom = ack.roomId;
+                    $("curRoom").textContent = currentRoom;
+                    $("gState").textContent = `Đã vào: ${currentRoom} | Members: ${ack.members.join(", ")}${ack.locked ? " | 🔒" : ""}`;
+                    $("composer").style.display = "";
+                    thread.innerHTML = "";
+                    render({ side: "you", name: "BOT 🤖", text: `Bạn đã vào phòng`, at: Date.now() });
+                });
+            });
+
+            // Invite vào phòng hiện tại (người được mời KHÔNG cần mật khẩu)
+            $("btnInvite").addEventListener("click", () => {
+                if (!currentRoom) { $("gState").textContent = "Bạn chưa ở phòng nào"; return; }
+                const pid = $("invitePeer").value.trim();
+                if (!pid) { $("gState").textContent = "Nhập ID để mời"; return; }
+                socket.emit("room:invite", { roomId: currentRoom, peerId: pid }, (ack) => {
+                    $("gState").textContent = ack?.ok
+                        ? `Đã gửi lời mời tới ${pid}`
+                        : (
+                            ack?.error === "PEER_ALREADY_IN_ROOM" ? `User ${pid} đã ở trong phòng.` :
+                                ack?.error === "ROOM_NOT_FOUND" ? "Phòng không tồn tại." :
+                                    ack?.error || "Mời lỗi"
+                        );
+                });
+
+            });
+
+            // Gửi tin vào phòng
+            $("composer").addEventListener("submit", (e) => {
+                e.preventDefault();
+                const text = msgInput.value.trim();
+                if (!text || !currentRoom) return;
+                socket.emit("room:send", { roomId: currentRoom, text }, (ack) => {
+                    if (!ack?.ok) render({ side: "you", name: "BOT 🤖", text: `Gửi lỗi: ${ack?.error || "Unknown"}`, at: Date.now() });
+                });
+                msgInput.value = ""; msgInput.focus();
+            });
+        });
+    </script>
+
+</body>
+
+</html>
