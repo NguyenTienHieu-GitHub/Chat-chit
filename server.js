@@ -23,7 +23,7 @@ app.use(
     methods: ["GET", "POST", "OPTIONS"],
   })
 );
-app.options("/*", (req, res) => res.sendStatus(204));
+app.options("/.*/", (req, res) => res.sendStatus(204));
 app.use(express.json());
 app.get("/health", (req, res) => {
   res.json({ ok: true, ts: Date.now() });
