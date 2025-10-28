@@ -5,20 +5,44 @@ const { Server } = require("socket.io");
 const cors = require("cors");
 
 const app = express();
+const allowOrigins = [
+  "https://chat-chit-real.vercel.app",
+  // Có thể cho phép preview:
+  (origin) => /\.vercel\.app$/.test(origin || ""),
+];
 app.use(
   cors({
-    origin: [
-      "https://chat-chit-real.vercel.app", // domain frontend Vercel
-      // thêm origin khác nếu cần (preview *.vercel.app thì cân nhắc wildcard)
-    ],
-    methods: ["GET", "POST"],
+    origin: (origin, cb) => {
+      if (!origin) return cb(null, true); // cho phép non-browser/ping
+      const ok = allowOrigins.some((r) =>
+        typeof r === "function" ? r(origin) : r === origin
+      );
+      cb(ok ? null : new Error("Not allowed by CORS"), ok);
+    },
     credentials: true,
+    methods: ["GET", "POST", "OPTIONS"],
   })
 );
+app.options("*", (req, res) => res.sendStatus(204));
 app.use(express.json());
+app.get("/health", (req, res) => {
+  res.json({ ok: true, ts: Date.now() });
+});
 
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: "*" } });
+const io = new Server(server, {
+  cors: {
+    origin: (origin, cb) => {
+      if (!origin) return cb(null, true);
+      const ok = allowOrigins.some((r) =>
+        typeof r === "function" ? r(origin) : r === origin
+      );
+      cb(ok ? null : new Error("Not allowed by CORS"), ok);
+    },
+    credentials: true,
+    methods: ["GET", "POST"],
+  },
+});
 
 // Online: id -> socketId
 const online = new Map();
