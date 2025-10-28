@@ -5,7 +5,16 @@ const { Server } = require("socket.io");
 const cors = require("cors");
 
 const app = express();
-app.use(cors());
+app.use(
+  cors({
+    origin: [
+      "https://chat-chit-real.vercel.app", // domain frontend Vercel
+      // thêm origin khác nếu cần (preview *.vercel.app thì cân nhắc wildcard)
+    ],
+    methods: ["GET", "POST"],
+    credentials: true,
+  })
+);
 app.use(express.json());
 
 const server = http.createServer(app);

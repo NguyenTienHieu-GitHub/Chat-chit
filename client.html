@@ -212,8 +212,9 @@
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
     <script>
         document.addEventListener("DOMContentLoaded", () => {
-            const API = "http://localhost:3000"; // đổi sang IP LAN khi test mobile
-
+            const SOCKET_URL =
+                location.protocol === "https:" ? "https://chat-chit.onrender.com"
+                    : "http://localhost:3000"; // dev
             let socket = null;
             let my = "", currentRoom = "";
 
@@ -252,13 +253,15 @@
                 my = id;
 
                 if (socket && socket.connected) socket.disconnect();
-                socket = io(API, {
+                socket = io(SOCKET_URL, {
+                    transports: ["websocket", "polling"],
+                    withCredentials: true,
                     auth: { id: my },
+                    timeout: 10000,
                     reconnection: true,
-                    reconnectionAttempts: 10,     // thử tối đa 10 lần
-                    reconnectionDelay: 1000,      // delay ban đầu 1s
-                    reconnectionDelayMax: 8000,   // delay tối đa 8s
-                    timeout: 10000,               // 10s cho handshake
+                    reconnectionAttempts: 10,
+                    reconnectionDelay: 1000,
+                    reconnectionDelayMax: 8000,
                 });
 
                 // Kết nối thành công lần đầu
